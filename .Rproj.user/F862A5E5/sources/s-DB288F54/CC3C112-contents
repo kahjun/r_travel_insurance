@@ -1,0 +1,121 @@
+---
+title: 'SMM Section 11 Case 6: Volatility Smile'
+author: "FAP Candidate"
+date: "9/27/2019"
+output:
+  word_document:
+    toc: yes
+  html_document:
+    code_folding: hide
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+  github_document: default
+---
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# callPriceCalculation.BS
+The function that calculates the price of a call option using Black-Scholes formula.
+```{r}
+callPriceCalculation.BS <- function(S, K, r, d, sigma, T) {
+  d1 <- (log(S) - log(K) + (r - d + 0.5 * sigma ^ 2) * T) / sigma / sqrt(T)
+  d2 <- d1 - sigma * sqrt(T)
+  S * exp(-d * T) * pnorm(d1) - K * exp(-r * T) * pnorm(d2)
+}
+```
+
+# priceDifference
+The function that calculates the difference between market price and estimated price for nlm().
+```{r}
+priceDifference <- function(sigma, market.price, S, K, r, d, T) {
+  price.estimate <- callPriceCalculation.BS(S, K, r, d, sigma, T)
+  return(abs(price.estimate - market.price))
+}
+```
+
+# estimateSigma.BS 
+The function that estimates sigma from market price of a call option under Black-Scholes model.
+```{r}
+estimateSigma.BS <- function(S, K, r, d, sigma.init, T, market.price){
+  sigma.nlm <- nlm(priceDifference, p = sigma.init, market.price = market.price, S = S, K = K, 
+                   r = r, d = d, T = T)$estimate
+  library(RND)
+  sigma.rnd <- compute.implied.volatility(r, T, S, K, d, market.price,0.001,0.999)
+  names <- c("nlm estimate", "RND estimate")
+  c(sigma.nlm, sigma.rnd)
+}
+```
+
+# Main Section
+
+Steps:
+
+1.  Enter input parameters plus the market prices of the call
+
+2.	Estimate sigma using nlm() and compute.implied.volatility()
+
+3.  Calculate the call price based on the Black-Scholes formula
+
+4.  Visualize the relationship between implied volatility against strike price
+
+## Setting input parameters
+
+```{r}
+S0 <- rep(2500,9)
+r <- 0.05 # Assumption from Case 1
+K <- 21:29 * 100
+T <- 1 # Assumption from Case 1
+d <- 0 # Assumption from Case 1
+market.price <- c(600, 500, 410, 325, 260, 215, 190, 175, 180)
+```
+
+## Estimate the parameters for the LN model simulations
+
+```{r}
+sigma.init <- 0.2
+sigma.est <- sapply(1:length(S0), function(i) {
+  estimateSigma.BS(S0[i], K[i], r, d, sigma.init, T, market.price[i])
+})
+df <- data.frame(sigma.nlm = sigma.est[1,], sigma.rnd = sigma.est[2,])
+df
+```
+
+## Calculate the call price based on the Black-Scholes formula
+
+```{r}
+df$callPrice.BS.nlm <- callPriceCalculation.BS(S0, K, r, d, df$sigma.nlm, T)
+df$callPrice.BS.rnd <- callPriceCalculation.BS(S0, K, r, d, df$sigma.rnd, T)
+df$callPrice.market <- market.price
+df
+```
+
+## Visualize the relationship between implied volatility against strike price
+
+```{r}
+plot(K, df$sigma.nlm, col='red', type="l", lty=1, ylab="sigma", ylim=c(0.1,0.5))
+lines(K, df$sigma.rnd, col='blue', lty=2)
+points(K, df$sigma.nlm, col='red' , pch=4)
+points(K, df$sigma.rnd, col='blue' , pch=1)
+legend("topright", legend=c("sigma.nlm", "sigma.rnd"),
+       col=c("red", "blue"), lty=c(1,2), pch=c(4,1))
+```
+
+# Conclusions
+
+Under assumption from Case 1 and the information given:
+
+1. The estimated sigmas from nlm() and compute.implied.volatility() are almost the same.
+
+2. The call prices calculated from the Black-Scholes formula using the estimated sigma is equal to the market price of the call options.
+
+3. The line of estimated sigmas against strike prices slopes upwards on both ends, implying the existence of a volatility smile.
+
+4. As the number of scenarios increases, the estimated call prices converge to the price from Black-Scholes formula when deflators are used.
+
+5. Different random seeds yield different estimated call price with deflators under real-world scenarios.
+
+These results demonstrates that the codes are set up correctly.

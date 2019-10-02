@@ -1,0 +1,29 @@
+---
+title: "Analyzing Travel Insurance"
+author: "Kah Jun Lim"
+date: "10/2/2019"
+output:
+  html_document:
+    code_folding: hide
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+  github_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+The purpose of this project is to perform exploratory data analysis on travel insurance dataset.
+
+## Loading the Data and Dependencies
+
+```{r Data and Dependencies}
+library(ggplot2)
+
+
+```
+

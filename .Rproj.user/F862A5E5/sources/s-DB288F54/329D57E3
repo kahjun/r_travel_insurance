@@ -1,0 +1,26 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1570024231604.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "0",
+    "id" : "329D57E3",
+    "lastKnownWriteTime" : 1570026172,
+    "last_content_update" : 1570026172879,
+    "path" : "~/Desktop/PA/r_travel_insurance/travel_insurance.Rmd",
+    "project_path" : "travel_insurance.Rmd",
+    "properties" : {
+        "cursorPosition" : "13,27",
+        "scrollLine" : "6",
+        "tempName" : "Untitled1"
+    },
+    "read_only" : false,
+    "read_only_alternatives" : [
+    ],
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_markdown"
+}
