@@ -17,13 +17,63 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Introduction
 
-The purpose of this project is to perform exploratory data analysis on travel insurance dataset.
+The purpose of this project is to perform exploratory data analysis(EDA) on travel insurance dataset and identify factors that might affect whether a claim is made.
 
 ## Loading the Data and Dependencies
 
 ```{r Data and Dependencies}
+library(dplyr)
 library(ggplot2)
+library(scales)
 
-
+travel_insurance_full <- read.csv("data/travel_insurance.csv")
+head(travel_insurance_full)
 ```
 
+```{r Rename columns}
+colnames(travel_insurance_full) <- c("agency", "agency.type", "distribution.channel", "product.name", "claim", 
+                                     "duration", "destination", "net.sales", "commision", "gender", "age")
+```
+
+
+## Exploratory Data Analysis
+
+```{r Simple Statistics}
+summary(travel_insurance_full)
+```
+
+There are 10 features in this data set, 4 of them are numeric and the others are factors. The only column with missing data is Gender, where a large portion of the values are missing. I notice that there are non-positive values for duration, which does not make sense. There are also durations that are excessively long. For age, the highest value is 118.
+
+```{r Looking at bad data}
+travel_insurance_full %>%
+  filter(duration <= 0 | duration >= 1000) %>%
+  nrow
+travel_insurance_full %>%
+  filter(age > 100) %>%
+  nrow
+```
+
+Since there is only a relatively small proportion of the data contains unreasonable duration and uncommon age, I remove these data points for the purpose of this project.
+
+```{r Remove bad data and rename gender Others}
+travel_insurance <- travel_insurance_full %>%
+  filter(duration > 0 & duration < 1000 & age <= 100)
+levels(travel_insurance$gender) <- c("Unknown", "F", "M")
+```
+
+We can now move on to look at distribution of some of the features.
+
+```{r}
+ggplot(travel_insurance, aes(x = claim, fill = agency.type)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format())
+ggplot(travel_insurance, aes(x = claim, fill = gender)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = percent_format())
+travel_insurance %>%
+  group_by(product.name, claim) %>%
+  summarise(count = count()) # TODO
+  ggplot(aes(x = reorder(product.name, -count), y = count, fill = claim)) +
+    geom_bar(stat = "identity", position = "fill") +
+    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+```
