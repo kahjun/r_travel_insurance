@@ -3,12 +3,12 @@ title: "Analyzing Travel Insurance"
 author: "Kah Jun Lim"
 date: "10/2/2019"
 output:
+  github_document: default
   html_document:
     code_folding: hide
-    number_sections: yes
+    number_sections: no
     toc: yes
     toc_float: yes
-  github_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -21,10 +21,12 @@ The purpose of this project is to perform exploratory data analysis(EDA) on trav
 
 ## Loading the Data and Dependencies
 
-```{r Data and Dependencies}
+```{r Data and Dependencies, message=FALSE, warning=FALSE}
 library(dplyr)
 library(ggplot2)
+library(tidyr)
 library(scales)
+library(gridExtra)
 
 travel_insurance_full <- read.csv("data/travel_insurance.csv")
 head(travel_insurance_full)
@@ -55,25 +57,110 @@ travel_insurance_full %>%
 
 Since there is only a relatively small proportion of the data contains unreasonable duration and uncommon age, I remove these data points for the purpose of this project.
 
-```{r Remove bad data and rename gender Others}
+```{r Preprocessing}
 travel_insurance <- travel_insurance_full %>%
-  filter(duration > 0 & duration < 1000 & age <= 100)
+  filter(duration > 0 & duration < 1000 & age <= 100) %>%
+  mutate(claim = ifelse(claim == "Yes", 1, 0))
 levels(travel_insurance$gender) <- c("Unknown", "F", "M")
 ```
 
 We can now move on to look at distribution of some of the features.
 
-```{r}
+### Factor Variables
+
+```{r Factor variables}
+# agency.type
 ggplot(travel_insurance, aes(x = claim, fill = agency.type)) +
   geom_bar(position = "fill") +
   scale_y_continuous(labels = percent_format())
+
+# distribution.channel (not useful)
+# ggplot(travel_insurance, aes(x = claim, fill = distribution.channel)) +
+#   geom_bar()
+
+# gender
 ggplot(travel_insurance, aes(x = claim, fill = gender)) +
   geom_bar(position = "fill") +
   scale_y_continuous(labels = percent_format())
-travel_insurance %>%
-  group_by(product.name, claim) %>%
-  summarise(count = count()) # TODO
-  ggplot(aes(x = reorder(product.name, -count), y = count, fill = claim)) +
+
+# Helper functions to plot top n for factors with many levels
+plot_top_n <- function(df, var, n = 10, title = "") {
+  colnames(df)[colnames(df) == var] <- "var"
+  freq_by_var <- df %>%
+    group_by(var, claim = as.factor(claim)) %>%
+    summarise(freq = n()) %>%
+    spread(key = claim, value = freq, fill = 0) %>%
+    mutate(total = `0` + `1`) %>%
+    ungroup %>%
+    top_n(n = n, wt = total) %>%
+    select(-total) %>%
+    gather(key = "claim", value = "freq", `0`, `1`)
+  p <- ggplot(freq_by_var, aes(x = var, y = freq, fill = claim))
+  p1 <- p +
+    geom_bar(stat = "identity") +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    xlab(var)
+  p2 <- p +
     geom_bar(stat = "identity", position = "fill") +
-    theme(axis.text.x = element_text(angle = 90, hjust = 1))
+    scale_y_continuous(labels = percent_format()) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    xlab(var)
+  grid.arrange(p1, p2, ncol = 2, top = title)
+}
+
+plot_top_n(travel_insurance, "destination", title = "Top 10 Destinations")
+plot_top_n(travel_insurance, "agency", title = "Top 10 Agencies")
+plot_top_n(travel_insurance, "product.name", title = "Top 10 Products")
 ```
+
+1.  We see that given a claim has occured, it is more likely to be from airlines than from travel agency. 
+
+2.  For gender, although claims occur with equal proportion for Male, Female and Unknown.
+
+3.  Only 5 agencies observed claims count more than 50.
+
+4. All the companies have extremely low percentage of claims observed.
+
+
+### Numeric Variables
+```{r Numeric variables}
+p1 <- ggplot(travel_insurance, aes(x = duration, y = claim)) +
+  geom_jitter(alpha = 0.05)
+p2 <- ggplot(travel_insurance, aes(x = net.sales, y = claim)) +
+  geom_jitter(alpha = 0.05)
+p3 <- ggplot(travel_insurance, aes(x = commision, y = claim)) +
+  geom_jitter(alpha = 0.05)
+p4 <- ggplot(travel_insurance, aes(x = age, y = claim)) +
+  geom_jitter(alpha = 0.05)
+grid.arrange(p1, p2, p3, p4, ncol = 2)
+```
+
+There doesn't seem to be any obvious pattern in the four plots. Let us add more dimension to the scatterplots and see if we can have any new findings.
+
+```{r Numeric Variables by Factors}
+# duration
+ggplot(travel_insurance, aes(x = duration, y = claim, color = gender)) +
+  geom_jitter(alpha = 0.5, shape = 1)
+ggplot(travel_insurance, aes(x = duration, y = claim, color = agency.type)) +
+  geom_jitter(alpha = 0.5, shape = 1)
+
+# age (not useful)
+# ggplot(travel_insurance, aes(x = age, y = claim, color = gender)) +
+#   geom_jitter(alpha = 0.5, shape = 1)
+# ggplot(travel_insurance, aes(x = age, y = claim, color = agency.type)) +
+#   geom_jitter(alpha = 0.5, shape = 1)
+
+# net.sales
+ggplot(travel_insurance, aes(x = net.sales, y = claim, color = gender)) +
+  geom_jitter(alpha = 0.5, shape = 1)
+ggplot(travel_insurance, aes(x = net.sales, y = claim, color = agency.type)) +
+  geom_jitter(alpha = 0.5, shape = 1)
+
+# commision (not useful)
+# ggplot(travel_insurance, aes(x = commision, y = claim, color = gender)) +
+#   geom_jitter(alpha = 0.5, shape = 1)
+# ggplot(travel_insurance, aes(x = commision, y = claim, color = agency.type)) +
+#   geom_jitter(alpha = 0.5, shape = 1)
+```
+
+TODO
