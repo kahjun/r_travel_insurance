@@ -15,11 +15,11 @@ output:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Introduction
+# Introduction
 
 The purpose of this project is to perform exploratory data analysis(EDA) on travel insurance dataset and identify factors that might affect whether a claim is made.
 
-## Loading the Data and Dependencies
+# Loading the Data and Dependencies
 
 ```{r Data and Dependencies, message=FALSE, warning=FALSE}
 library(dplyr)
@@ -27,6 +27,9 @@ library(ggplot2)
 library(tidyr)
 library(scales)
 library(gridExtra)
+library(caret)
+library(rpart)
+library(rpart.plot)
 
 travel_insurance_full <- read.csv("data/travel_insurance.csv")
 head(travel_insurance_full)
@@ -37,8 +40,9 @@ colnames(travel_insurance_full) <- c("agency", "agency.type", "distribution.chan
                                      "duration", "destination", "net.sales", "commision", "gender", "age")
 ```
 
+# Exploratory Data Analysis
 
-## Exploratory Data Analysis
+## Handling Missing/Bad Data
 
 ```{r Simple Statistics}
 summary(travel_insurance_full)
@@ -59,30 +63,44 @@ Since there is only a relatively small proportion of the data contains unreasona
 
 ```{r Preprocessing}
 travel_insurance <- travel_insurance_full %>%
-  filter(duration > 0 & duration < 1000 & age <= 100) %>%
-  mutate(claim = ifelse(claim == "Yes", 1, 0))
+  filter(duration > 0 & duration < 1000 & age <= 100)
 levels(travel_insurance$gender) <- c("Unknown", "F", "M")
 ```
 
 We can now move on to look at distribution of some of the features.
 
-### Factor Variables
+## Looking Into Factor Variables
 
-```{r Factor variables}
-# agency.type
-ggplot(travel_insurance, aes(x = claim, fill = agency.type)) +
+### Claim
+
+```{r Claim Distribution}
+ggplot(travel_insurance, aes(x = claim)) +
+  geom_bar()
+```
+
+From the graph above, we see that only an extremely small number of policies have claims, which is what one would expect. In this case, claims occured can be viewed as anomalies or rare events. Moving forward, it is better to look at the proportion instead of the frequencies.
+
+### Agency Type
+
+```{r Agency Type}
+ggplot(travel_insurance, aes(x = agency.type, fill = claim)) +
   geom_bar(position = "fill") +
   scale_y_continuous(labels = percent_format())
+```
 
-# distribution.channel (not useful)
-# ggplot(travel_insurance, aes(x = claim, fill = distribution.channel)) +
-#   geom_bar()
+We see that policies sold by airlines are more likely to observe claim compared to policies sold via travel agencies.
 
-# gender
-ggplot(travel_insurance, aes(x = claim, fill = gender)) +
+### Gender
+
+```{r Gender}
+ggplot(travel_insurance, aes(x = gender, fill = claim)) +
   geom_bar(position = "fill") +
   scale_y_continuous(labels = percent_format())
+```
 
+It is interesting that Unknown gender experienced less claims than M or F. One possible explanation is that the higher the chance of claims, the more formal the policy would be, which includes recording more information of the policyholder.
+
+```{r plot_top_n, include=FALSE}
 # Helper functions to plot top n for factors with many levels
 plot_top_n <- function(df, var, n = 10, title = "") {
   colnames(df)[colnames(df) == var] <- "var"
@@ -90,12 +108,12 @@ plot_top_n <- function(df, var, n = 10, title = "") {
     group_by(var, claim = as.factor(claim)) %>%
     summarise(freq = n()) %>%
     spread(key = claim, value = freq, fill = 0) %>%
-    mutate(total = `0` + `1`) %>%
+    mutate(total = Yes + No) %>%
     ungroup %>%
     top_n(n = n, wt = total) %>%
     select(-total) %>%
-    gather(key = "claim", value = "freq", `0`, `1`)
-  p <- ggplot(freq_by_var, aes(x = var, y = freq, fill = claim))
+    gather(key = "claim", value = "freq", Yes, No)
+  p <- ggplot(freq_by_var, aes(x = reorder(var,-freq), y = freq, fill = claim))
   p1 <- p +
     geom_bar(stat = "identity") +
     theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
@@ -107,60 +125,75 @@ plot_top_n <- function(df, var, n = 10, title = "") {
     xlab(var)
   grid.arrange(p1, p2, ncol = 2, top = title)
 }
+```
 
+### Destination
+
+```{r Destination}
 plot_top_n(travel_insurance, "destination", title = "Top 10 Destinations")
+```
+
+In this dataset, the country with the most entry is Singapore, which also has the highest proportion of claims observed. Among the top 10 countries in this data, US, China, and Australia also have relatively higher proportion of claims compared to the others.
+
+### Agency
+```{r Agency}
 plot_top_n(travel_insurance, "agency", title = "Top 10 Agencies")
+```
+
+The agencies with high proportion of claims observed are C2B and LWC.
+
+### Product
+```{r Product}
 plot_top_n(travel_insurance, "product.name", title = "Top 10 Products")
 ```
 
-1.  We see that given a claim has occured, it is more likely to be from airlines than from travel agency. 
-
-2.  For gender, although claims occur with equal proportion for Male, Female and Unknown.
-
-3.  Only 5 agencies observed claims count more than 50.
-
-4. All the companies have extremely low percentage of claims observed.
+Among the top 10 products in this data, Annual Silver Plan, Silver Plan, and Brownze Plan has the highest claims proportions.
 
 
-### Numeric Variables
+## Numeric Variables
 ```{r Numeric variables}
 p1 <- ggplot(travel_insurance, aes(x = duration, y = claim)) +
-  geom_jitter(alpha = 0.05)
+  geom_point(alpha = 0.05, shape = 1)
 p2 <- ggplot(travel_insurance, aes(x = net.sales, y = claim)) +
-  geom_jitter(alpha = 0.05)
+  geom_point(alpha = 0.05, shape = 1)
 p3 <- ggplot(travel_insurance, aes(x = commision, y = claim)) +
-  geom_jitter(alpha = 0.05)
+  geom_point(alpha = 0.05, shape = 1)
 p4 <- ggplot(travel_insurance, aes(x = age, y = claim)) +
-  geom_jitter(alpha = 0.05)
+  geom_point(alpha = 0.05, shape = 1)
 grid.arrange(p1, p2, p3, p4, ncol = 2)
 ```
 
-There doesn't seem to be any obvious pattern in the four plots. Let us add more dimension to the scatterplots and see if we can have any new findings.
+There doesn't seem to be any obvious pattern in the four plots. Nevertheless, the interaction between these features with each other or the factor variables might become useful.
 
-```{r Numeric Variables by Factors}
-# duration
-ggplot(travel_insurance, aes(x = duration, y = claim, color = gender)) +
-  geom_jitter(alpha = 0.5, shape = 1)
-ggplot(travel_insurance, aes(x = duration, y = claim, color = agency.type)) +
-  geom_jitter(alpha = 0.5, shape = 1)
+# Building Models
 
-# age (not useful)
-# ggplot(travel_insurance, aes(x = age, y = claim, color = gender)) +
-#   geom_jitter(alpha = 0.5, shape = 1)
-# ggplot(travel_insurance, aes(x = age, y = claim, color = agency.type)) +
-#   geom_jitter(alpha = 0.5, shape = 1)
+## Train-Test Splitting
 
-# net.sales
-ggplot(travel_insurance, aes(x = net.sales, y = claim, color = gender)) +
-  geom_jitter(alpha = 0.5, shape = 1)
-ggplot(travel_insurance, aes(x = net.sales, y = claim, color = agency.type)) +
-  geom_jitter(alpha = 0.5, shape = 1)
+Before we begin building models, we want to split the data into training set and testing set.
 
-# commision (not useful)
-# ggplot(travel_insurance, aes(x = commision, y = claim, color = gender)) +
-#   geom_jitter(alpha = 0.5, shape = 1)
-# ggplot(travel_insurance, aes(x = commision, y = claim, color = agency.type)) +
-#   geom_jitter(alpha = 0.5, shape = 1)
+```{r show_prop, include=FALSE}
+show_prop <- function(df) {
+  df %>%
+    group_by(claim) %>%
+    summarise(n = n()) %>%
+    mutate(prop = n / sum(n))
+}
 ```
 
-TODO
+```{r}
+train.index <- createDataPartition(travel_insurance$claim, p = 0.7, list = FALSE)
+train <- travel_insurance[train.index,]
+test <- travel_insurance[-train.index,]
+show_prop(travel_insurance)
+show_prop(train)
+show_prop(test)
+```
+
+
+## Tree-Based Models
+
+### Simple Decision Trees
+```{r Simple Decision Tree 1}
+?rpart
+```
+
