@@ -25,11 +25,16 @@ The purpose of this project is to perform exploratory data analysis(EDA) on trav
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+library(forcats)
 library(scales)
 library(gridExtra)
 library(caret)
 library(rpart)
 library(rpart.plot)
+library(pROC)
+library(randomForest)
+library(xgboost)
+set.seed(0)
 
 travel_insurance_full <- read.csv("data/travel_insurance.csv")
 head(travel_insurance_full)
@@ -59,11 +64,16 @@ travel_insurance_full %>%
   nrow
 ```
 
-Since there is only a relatively small proportion of the data contains unreasonable duration and uncommon age, I remove these data points for the purpose of this project.
+Since there is only a relatively small proportion of the data contains unreasonable duration and uncommon age, I remove these data points for the purpose of this project. To reduce the levels of destination, I  also group the countries with less than 50 observations as Others.
 
 ```{r Preprocessing}
 travel_insurance <- travel_insurance_full %>%
-  filter(duration > 0 & duration < 1000 & age <= 100)
+  filter(duration > 0 & duration < 1000 & age <= 100) %>%
+  group_by(destination) %>%
+  mutate(freq = n()) %>%
+  ungroup() %>%
+  mutate(destination = ifelse(freq > 50, as.character(destination), "OTHERS")) %>%
+  transform(destination = as.factor(destination))
 levels(travel_insurance$gender) <- c("Unknown", "F", "M")
 ```
 
@@ -130,7 +140,7 @@ plot_top_n <- function(df, var, n = 10, title = "") {
 ### Destination
 
 ```{r Destination}
-plot_top_n(travel_insurance, "destination", title = "Top 10 Destinations")
+plot_top_n(travel_insurance, "destination", n = 10, title = "Top 10 Destinations")
 ```
 
 In this dataset, the country with the most entry is Singapore, which also has the highest proportion of claims observed. Among the top 10 countries in this data, US, China, and Australia also have relatively higher proportion of claims compared to the others.
@@ -189,11 +199,75 @@ show_prop(train)
 show_prop(test)
 ```
 
-
 ## Tree-Based Models
 
 ### Simple Decision Trees
 ```{r Simple Decision Tree 1}
-?rpart
+tree.simple <- rpart(claim ~ ., train)
+```
+
+Since the data is very imbalanced, our simple model would always classify policy as no claim. The model achieved a high accuracy of 98.5%, implying accuracy is a bad metric for performance. Dealing with imbalanced data, we can do the following two things:
+
+1. oversample the minority data to generate a balanced sample
+
+2. use F1-score as our metric as it considers both precision and recall
+
+```{r evaluate_tree, include=FALSE}
+evaluate_tree <- function(tree, df, show.cm = TRUE, rf = FALSE) {
+  if (rf) {
+    pred <- predict(tree, newdata = df)
+  }
+  else {
+    pred <- factor(ifelse(predict(tree, newdata = df)[,"Yes"] > 0.5, "Yes", "No"), levels = c("No", "Yes"))
+  }
+  cm <- confusionMatrix(pred, df$claim)
+  if (show.cm) print(cm$table)
+  ppv <- precision(pred, df$claim, relevant = "Yes")
+  tpr <- recall(pred, df$claim, relevant = "Yes")
+  c(Accuracy = (cm$table[1,1] + cm$table[2,2]) / sum(cm$table),
+    Precision = ppv, 
+    TPR = tpr, 
+    F1 = 2 * ppv * tpr / (ppv + tpr))
+}
+```
+
+```{r performance for simple tree}
+evaluate_tree(tree.simple, test)
+```
+
+Since all the prediction are negative, none of the true positive are correctly predicted. As a results, the true positive rate is 0.
+
+### Simple Decision Tree on Resampled Balanced Data
+
+```{r draw_balanced_sample, include=FALSE}
+draw_balanced_sample <- function(train, n) {
+  train.yes <- sample_n(train %>% filter(claim == "Yes"), n, replace = TRUE)
+  train.no <- sample_n(train %>% filter(claim == "No"), n, replace = TRUE)
+  rbind(train.yes, train.no)
+}
+```
+
+```{r Simple Decision Tree 2}
+train.balanced <- draw_balanced_sample(train, 10000)
+show_prop(train.balanced)
+tree.simple.balanced <- rpart(claim ~ ., train.balanced)
+evaluate_tree(tree.simple.balanced, test)
+```
+
+Although the accuracy drops, we see that the model is now predicting some of the true positive correctly. The problem now is that the model is also predicting a lot of the true negative as positive. Overall, the F1-score is pretty low. This is due to overfitting, and to tackle this problem, we can try using some ensemble methods like bagging and boosting.
+
+### Random Forest Model
+
+```{r Random Forest}
+set.seed(0)
+rf.balanced <- randomForest(claim ~ ., train, ntree = 300,
+                            sampsize = c(500, 200),
+                            strata = train$claim)
+rf.balanced
+evaluate_tree(rf.balanced, test, rf = TRUE)
+```
+
+```{r}
+
 ```
 

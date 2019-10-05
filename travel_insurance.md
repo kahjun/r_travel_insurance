@@ -15,11 +15,16 @@ whether a claim is made.
 library(dplyr)
 library(ggplot2)
 library(tidyr)
+library(forcats)
 library(scales)
 library(gridExtra)
 library(caret)
 library(rpart)
 library(rpart.plot)
+library(pROC)
+library(randomForest)
+library(xgboost)
+set.seed(0)
 
 travel_insurance_full <- read.csv("data/travel_insurance.csv")
 head(travel_insurance_full)
@@ -118,11 +123,23 @@ travel_insurance_full %>%
 
 Since there is only a relatively small proportion of the data contains
 unreasonable duration and uncommon age, I remove these data points for
-the purpose of this project.
+the purpose of this project. To reduce the levels of destination, I also
+group the countries with less than 50 observations as Others.
 
 ``` r
 travel_insurance <- travel_insurance_full %>%
-  filter(duration > 0 & duration < 1000 & age <= 100)
+  filter(duration > 0 & duration < 1000 & age <= 100) %>%
+  group_by(destination) %>%
+  mutate(freq = n()) %>%
+  ungroup() %>%
+  mutate(destination = ifelse(freq > 50, as.character(destination), "OTHERS")) %>%
+  transform(destination = as.factor(destination))
+```
+
+    ## Warning: The `printer` argument is deprecated as of rlang 0.3.0.
+    ## This warning is displayed once per session.
+
+``` r
 levels(travel_insurance$gender) <- c("Unknown", "F", "M")
 ```
 
@@ -177,11 +194,8 @@ policyholder.
 ### Destination
 
 ``` r
-plot_top_n(travel_insurance, "destination", title = "Top 10 Destinations")
+plot_top_n(travel_insurance, "destination", n = 10, title = "Top 10 Destinations")
 ```
-
-    ## Warning: The `printer` argument is deprecated as of rlang 0.3.0.
-    ## This warning is displayed once per session.
 
 ![](travel_insurance_files/figure-gfm/Destination-1.png)<!-- -->
 
@@ -277,5 +291,99 @@ show_prop(test)
 ### Simple Decision Trees
 
 ``` r
-?rpart
+tree.simple <- rpart(claim ~ ., train)
 ```
+
+Since the data is very imbalanced, our simple model would always
+classify policy as no claim. The model achieved a high accuracy of
+98.5%, implying accuracy is a bad metric for performance. Dealing with
+imbalanced data, we can do the following two things:
+
+1.  oversample the minority data to generate a balanced sample
+
+2.  use F1-score as our metric as it considers both precision and recall
+
+<!-- end list -->
+
+``` r
+evaluate_tree(tree.simple, test)
+```
+
+    ##           Reference
+    ## Prediction    No   Yes
+    ##        No  18412   275
+    ##        Yes     0     0
+
+    ##  Accuracy Precision       TPR        F1 
+    ## 0.9852839        NA 0.0000000        NA
+
+Since all the prediction are negative, none of the true positive are
+correctly predicted. As a results, the true positive rate is 0.
+
+### Simple Decision Tree on Resampled Balanced Data
+
+``` r
+train.balanced <- draw_balanced_sample(train, 10000)
+show_prop(train.balanced)
+```
+
+    ## # A tibble: 2 x 3
+    ##   claim     n  prop
+    ##   <fct> <int> <dbl>
+    ## 1 No    10000   0.5
+    ## 2 Yes   10000   0.5
+
+``` r
+tree.simple.balanced <- rpart(claim ~ ., train.balanced)
+evaluate_tree(tree.simple.balanced, test)
+```
+
+    ##           Reference
+    ## Prediction    No   Yes
+    ##        No  13634    55
+    ##        Yes  4778   220
+
+    ##   Accuracy  Precision        TPR         F1 
+    ## 0.74137101 0.04401761 0.80000000 0.08344396
+
+Although the accuracy drops, we see that the model is now predicting
+some of the true positive correctly. The problem now is that the model
+is also predicting a lot of the true negative as positive. Overall, the
+F1-score is pretty low. This is due to overfitting, and to tackle this
+problem, we can try using some ensemble methods like bagging and
+boosting.
+
+### Random Forest Model
+
+``` r
+set.seed(0)
+rf.balanced <- randomForest(claim ~ ., train, ntree = 300,
+                            sampsize = c(500, 200),
+                            strata = train$claim)
+rf.balanced
+```
+
+    ## 
+    ## Call:
+    ##  randomForest(formula = claim ~ ., data = train, ntree = 300,      sampsize = c(500, 200), strata = train$claim) 
+    ##                Type of random forest: classification
+    ##                      Number of trees: 300
+    ## No. of variables tried at each split: 3
+    ## 
+    ##         OOB estimate of  error rate: 12.14%
+    ## Confusion matrix:
+    ##        No  Yes class.error
+    ## No  37946 5016   0.1167543
+    ## Yes   276  366   0.4299065
+
+``` r
+evaluate_tree(rf.balanced, test, rf = TRUE)
+```
+
+    ##           Reference
+    ## Prediction    No   Yes
+    ##        No  16372   113
+    ##        Yes  2040   162
+
+    ##   Accuracy  Precision        TPR         F1 
+    ## 0.88478622 0.07356948 0.58909091 0.13080339
